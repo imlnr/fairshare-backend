@@ -12,7 +12,6 @@ import type {
   AuthResult,
   GoogleAuthInput,
   LoginInput,
-  RegisterInput,
   SafeUser,
 } from "@/modules/auth/auth.types"
 import type { AuthenticatedUser } from "@/types/express"
@@ -81,32 +80,6 @@ async function buildAuthResult(user: PopulatedUser): Promise<AuthResult> {
 }
 
 export const authService = {
-  async register(input: RegisterInput): Promise<AuthResult> {
-    const existingUser = await User.findOne({ email: input.email })
-    if (existingUser) {
-      throw new ApiError(409, "Email is already registered")
-    }
-
-    const memberRole = await Role.findOne({ key: ROLE_KEYS.MEMBER })
-    if (!memberRole) {
-      throw new ApiError(500, "Default member role is not configured")
-    }
-
-    const hashedPassword = await bcrypt.hash(input.password, 12)
-    const user = await User.create({
-      name: input.name,
-      email: input.email,
-      password: hashedPassword,
-      authProvider: "local",
-      roleId: memberRole._id,
-      isEmailVerified: false,
-      lastLoginAt: new Date(),
-    })
-
-    const populatedUser = await getPopulatedUser(user._id.toString())
-    return buildAuthResult(populatedUser)
-  },
-
   async login(input: LoginInput): Promise<AuthResult> {
     const user = await User.findOne({ email: input.email }).select("+password").populate("roleId")
     if (!user || !user.password) {
@@ -140,43 +113,31 @@ export const authService = {
       throw new ApiError(401, "Invalid Google token")
     }
 
-    const memberRole = await Role.findOne({ key: ROLE_KEYS.MEMBER })
-    if (!memberRole) {
-      throw new ApiError(500, "Default member role is not configured")
-    }
-
-    let user = await User.findOne({
+    const user = await User.findOne({
       $or: [{ googleId: payload.sub }, { email: payload.email.toLowerCase() }],
     })
 
     if (!user) {
-      user = await User.create({
-        name: payload.name ?? payload.email.split("@")[0],
-        email: payload.email.toLowerCase(),
-        image: payload.picture,
-        googleId: payload.sub,
-        googleEmail: payload.email.toLowerCase(),
-        authProvider: "google",
-        roleId: memberRole._id,
-        isEmailVerified: payload.email_verified ?? false,
-        lastLoginAt: new Date(),
-      })
-    } else {
-      user.name = payload.name ?? user.name
-      user.image = payload.picture ?? user.image
-      user.googleId = payload.sub
-      user.googleEmail = payload.email.toLowerCase()
-      user.isEmailVerified = payload.email_verified ?? user.isEmailVerified
-      user.lastLoginAt = new Date()
-
-      if (user.authProvider === "local" && user.password) {
-        user.authProvider = "both"
-      } else if (user.authProvider !== "both") {
-        user.authProvider = "google"
-      }
-
-      await user.save()
+      throw new ApiError(
+        403,
+        "No account found for this Google email. Request access or contact your room manager."
+      )
     }
+
+    user.name = payload.name ?? user.name
+    user.image = payload.picture ?? user.image
+    user.googleId = payload.sub
+    user.googleEmail = payload.email.toLowerCase()
+    user.isEmailVerified = payload.email_verified ?? user.isEmailVerified
+    user.lastLoginAt = new Date()
+
+    if (user.authProvider === "local" && user.password) {
+      user.authProvider = "both"
+    } else if (user.authProvider !== "both") {
+      user.authProvider = "google"
+    }
+
+    await user.save()
 
     if (!user.isActive) {
       throw new ApiError(403, "Your account has been deactivated")

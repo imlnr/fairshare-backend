@@ -27,6 +27,8 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   { key: "bills:reopen", resource: "bills", action: "reopen", description: "Reopen a locked bill for editing" },
   { key: "payments:read", resource: "payments", action: "read", description: "View payment records" },
   { key: "payments:create", resource: "payments", action: "create", description: "Record payments" },
+  { key: "join_requests:read", resource: "join_requests", action: "read", description: "View room manager join requests" },
+  { key: "join_requests:review", resource: "join_requests", action: "review", description: "Approve or reject join requests" },
 ]
 
 export const ROLE_PERMISSION_MAP: Record<string, string[]> = {
@@ -51,6 +53,7 @@ export const ROLE_PERMISSION_MAP: Record<string, string[]> = {
   member: [
     "rooms:read",
     "expenses:read",
+    "expenses:create",
     "reports:read",
     "bills:read",
     "payments:read",

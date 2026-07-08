@@ -1,7 +1,10 @@
 import { ApiError } from "@/utils/api-error"
 import { Expense } from "@/modules/expenses/expense.model"
+import { Room } from "@/modules/rooms/room.model"
 import { RoomMember } from "@/modules/rooms/room-member.model"
 import { validatePresence } from "@/modules/bills/bill-calculator"
+import { ROLE_KEYS } from "@/constants/roles"
+import type { AuthenticatedUser } from "@/types/express"
 
 type CreateExpenseInput = {
   title: string
@@ -26,16 +29,51 @@ export const expenseService = {
     return Expense.find(query).sort({ date: -1 }).lean()
   },
 
-  async createExpense(roomId: string, input: CreateExpenseInput, createdById: string) {
+  async createExpense(
+    roomId: string,
+    input: CreateExpenseInput,
+    user: AuthenticatedUser
+  ) {
     const expenseDate = new Date(input.date)
+    const room = await Room.findById(roomId).lean()
+    if (!room) throw new ApiError(404, "Room not found")
 
-    // Validate presence against active members on that date
+    const isAdmin = user.role.key === ROLE_KEYS.ADMIN
+    const isRoomManager =
+      room.managerId?.toString() === user.id ||
+      (user.role.key === ROLE_KEYS.ROOM_MANAGER && room.createdBy?.toString() === user.id)
+    const includeManager = isAdmin || isRoomManager
+
+    if (
+      !includeManager &&
+      room.managerId &&
+      input.paidByUserId === room.managerId.toString()
+    ) {
+      throw new ApiError(400, "Invalid paid-by selection")
+    }
+
     const memberships = await RoomMember.find({ roomId }).lean()
     const memberDateInfo = memberships.map((m) => ({
       userId: m.userId.toString(),
       joinedAt: m.joinedAt as Date,
       leftAt: (m.leftAt as Date | null) ?? null,
     }))
+
+    if (includeManager && room.managerId) {
+      memberDateInfo.push({
+        userId: room.managerId.toString(),
+        joinedAt: (room.createdAt as Date) ?? new Date(0),
+        leftAt: null,
+      })
+    }
+
+    if (
+      !includeManager &&
+      room.managerId &&
+      input.presentMemberIds.includes(room.managerId.toString())
+    ) {
+      throw new ApiError(400, "Room manager cannot be included in present members")
+    }
 
     const { valid, invalidIds } = validatePresence(
       input.presentMemberIds,
@@ -50,16 +88,37 @@ export const expenseService = {
       )
     }
 
+    if (!input.paidByUserId) {
+      throw new ApiError(400, "Paid-by user is required")
+    }
+
+    const { valid: paidValid, invalidIds: paidInvalid } = validatePresence(
+      [input.paidByUserId],
+      memberDateInfo,
+      expenseDate
+    )
+
+    if (!paidValid) {
+      throw new ApiError(
+        400,
+        `Paid-by user is not an active participant on this date: ${paidInvalid.join(", ")}`
+      )
+    }
+
+    if (!input.presentMemberIds.includes(input.paidByUserId)) {
+      throw new ApiError(400, "Paid-by person must be included in present members")
+    }
+
     return Expense.create({
       roomId,
       title: input.title,
       amount: input.amount,
       description: input.description,
       date: expenseDate,
-      paidByUserId: input.paidByUserId ?? null,
+      paidByUserId: input.paidByUserId,
       presentMemberIds: input.presentMemberIds,
       billPeriod: toBillPeriod(expenseDate),
-      createdBy: createdById,
+      createdBy: user.id,
     })
   },
 

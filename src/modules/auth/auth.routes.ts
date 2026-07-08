@@ -4,7 +4,6 @@ import { authenticate } from "@/middleware/authorize"
 
 const authRoutes = Router()
 
-authRoutes.post("/register", authController.register)
 authRoutes.post("/login", authController.login)
 authRoutes.post("/google", authController.googleLogin)
 authRoutes.get("/me", authenticate, authController.getMe)

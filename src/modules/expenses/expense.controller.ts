@@ -17,7 +17,7 @@ export const expenseController = {
     const expense = await expenseService.createExpense(
       req.params["roomId"] as string,
       req.body as Parameters<typeof expenseService.createExpense>[1],
-      req.user!.id
+      req.user!
     )
     res.status(201).json(ApiResponse.success(expense, "Expense created"))
   }),

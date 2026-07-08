@@ -2,19 +2,9 @@ import type { Request, Response } from "express"
 import { asyncHandler } from "@/middleware/async-handler"
 import { sendSuccess } from "@/utils/api-response"
 import { authService } from "@/modules/auth/auth.service"
-import type {
-  GoogleAuthInput,
-  LoginInput,
-  RegisterInput,
-} from "@/modules/auth/auth.types"
+import type { GoogleAuthInput, LoginInput } from "@/modules/auth/auth.types"
 
 export const authController = {
-  register: asyncHandler(async (req: Request, res: Response) => {
-    const input = req.body as RegisterInput
-    const result = await authService.register(input)
-    res.status(201).json(sendSuccess(result, "Account created successfully"))
-  }),
-
   login: asyncHandler(async (req: Request, res: Response) => {
     const input = req.body as LoginInput
     const result = await authService.login(input)

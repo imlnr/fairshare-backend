@@ -70,12 +70,22 @@ export const requireRoomAccess = (level: "member" | "manager") =>
     const { RoomMember } = await import("@/modules/rooms/room-member.model")
 
     const room = await Room.findById(roomId)
-    if (!room || !room.isActive) {
+    if (!room) {
+      throw new ApiError(404, "Room not found")
+    }
+
+    const isAssignedManager = room.managerId?.toString() === req.user.id
+    const isCreatorManager =
+      req.user.role.key === ROLE_KEYS.ROOM_MANAGER &&
+      room.createdBy?.toString() === req.user.id
+    const isManager = isAssignedManager || isCreatorManager
+
+    if (!room.isActive && !isManager) {
       throw new ApiError(404, "Room not found")
     }
 
     if (level === "manager") {
-      if (room.managerId?.toString() !== req.user.id) {
+      if (!isManager) {
         throw new ApiError(403, "You are not the manager of this room")
       }
       next()
@@ -83,7 +93,7 @@ export const requireRoomAccess = (level: "member" | "manager") =>
     }
 
     // level === "member": check active membership OR is manager
-    if (room.managerId?.toString() === req.user.id) {
+    if (isManager) {
       next()
       return
     }

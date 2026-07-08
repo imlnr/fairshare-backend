@@ -11,8 +11,14 @@ const roomRoutes = Router()
 roomRoutes.get("/", authenticate, roomController.listRooms)
 roomRoutes.post("/", authenticate, authorize("rooms:create"), roomController.createRoom)
 roomRoutes.get("/:roomId", authenticate, requireRoomAccess("member"), roomController.getRoom)
-roomRoutes.patch("/:roomId", authenticate, authorize("rooms:update"), roomController.updateRoom)
-roomRoutes.delete("/:roomId", authenticate, authorize("rooms:delete"), roomController.deleteRoom)
+roomRoutes.patch(
+  "/:roomId",
+  authenticate,
+  requireRoomAccess("manager"),
+  authorize("rooms:update"),
+  roomController.updateRoom
+)
+roomRoutes.delete("/:roomId", authenticate, requireRoomAccess("manager"), roomController.deleteRoom)
 roomRoutes.post(
   "/:roomId/assign-manager",
   authenticate,
@@ -27,6 +33,12 @@ roomRoutes.get(
   requireRoomAccess("manager"),
   roomController.listMembers
 )
+roomRoutes.get(
+  "/:roomId/participants",
+  authenticate,
+  requireRoomAccess("member"),
+  roomController.listParticipants
+)
 roomRoutes.post(
   "/:roomId/members",
   authenticate,
@@ -37,7 +49,7 @@ roomRoutes.patch(
   "/:roomId/members/:memberId",
   authenticate,
   requireRoomAccess("manager"),
-  roomController.deactivateMember
+  roomController.updateMember
 )
 
 // --- /api/rooms/:roomId/expenses ---
@@ -50,7 +62,7 @@ roomRoutes.get(
 roomRoutes.post(
   "/:roomId/expenses",
   authenticate,
-  requireRoomAccess("manager"),
+  requireRoomAccess("member"),
   authorize("expenses:create"),
   expenseController.createExpense
 )

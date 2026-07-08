@@ -1,6 +1,7 @@
 import type { Request, Response } from "express"
 import { asyncHandler } from "@/middleware/async-handler"
 import { ApiResponse } from "@/utils/api-response"
+import { ApiError } from "@/utils/api-error"
 import { roomService } from "@/modules/rooms/room.service"
 
 export const roomController = {
@@ -15,7 +16,7 @@ export const roomController = {
       description?: string
       image?: string
     }
-    const room = await roomService.createRoom({ name, description, image }, req.user!.id)
+    const room = await roomService.createRoom({ name, description, image }, req.user!)
     res.status(201).json(ApiResponse.success(room, "Room created"))
   }),
 
@@ -45,17 +46,63 @@ export const roomController = {
     res.json(ApiResponse.success(members))
   }),
 
-  addMember: asyncHandler(async (req: Request, res: Response) => {
-    const { userId } = req.body as { userId: string }
-    const member = await roomService.addMember(req.params["roomId"] as string, userId)
-    res.status(201).json(ApiResponse.success(member, "Member added"))
+  listParticipants: asyncHandler(async (req: Request, res: Response) => {
+    const participants = await roomService.listExpenseParticipants(
+      req.params["roomId"] as string,
+      req.user!
+    )
+    res.json(ApiResponse.success(participants))
   }),
 
-  deactivateMember: asyncHandler(async (req: Request, res: Response) => {
-    const member = await roomService.deactivateMember(
-      req.params["roomId"] as string,
-      req.params["memberId"] as string
+  addMember: asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as { userId?: string; email?: string; name?: string }
+    const roomId = req.params["roomId"] as string
+
+    if (body.email && body.name) {
+      const result = await roomService.inviteMemberByEmail(roomId, {
+        email: body.email,
+        name: body.name,
+      })
+      const populated = await roomService.getMemberById(roomId, result.member._id.toString())
+      const message = result.isNewUser
+        ? "Member added. Login credentials sent by email."
+        : "Existing member added to the room."
+      res.status(201).json(
+        ApiResponse.success(
+          {
+            member: populated,
+            isNewUser: result.isNewUser,
+            emailSent: result.isNewUser,
+          },
+          message
+        )
+      )
+      return
+    }
+
+    if (!body.userId) {
+      throw new ApiError(400, "email and name, or userId is required")
+    }
+
+    const member = await roomService.addMember(roomId, body.userId)
+    const populated = await roomService.getMemberById(roomId, member._id.toString())
+    res.status(201).json(
+      ApiResponse.success({ member: populated, isNewUser: false, emailSent: false }, "Member added")
     )
-    res.json(ApiResponse.success(member, "Member deactivated"))
+  }),
+
+  updateMember: asyncHandler(async (req: Request, res: Response) => {
+    const { isActive } = req.body as { isActive?: boolean }
+    const roomId = req.params["roomId"] as string
+    const memberId = req.params["memberId"] as string
+
+    if (typeof isActive !== "boolean") {
+      throw new ApiError(400, "isActive boolean is required")
+    }
+
+    const member = await roomService.updateMemberStatus(roomId, memberId, isActive)
+    res.json(
+      ApiResponse.success(member, isActive ? "Member activated" : "Member deactivated")
+    )
   }),
 }
