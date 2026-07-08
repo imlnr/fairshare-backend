@@ -1,0 +1,212 @@
+import { Types } from "mongoose"
+import bcrypt from "bcrypt"
+import { OAuth2Client } from "google-auth-library"
+import jwt from "jsonwebtoken"
+import { ROLE_KEYS } from "@/constants/roles"
+import { env } from "@/config/env"
+import { ApiError } from "@/utils/api-error"
+import { getPermissionsForRole } from "@/modules/rbac/rbac.service"
+import { Role } from "@/modules/roles/role.model"
+import { User, type AuthProvider } from "@/modules/users/user.model"
+import type {
+  AuthResult,
+  GoogleAuthInput,
+  LoginInput,
+  RegisterInput,
+  SafeUser,
+} from "@/modules/auth/auth.types"
+import type { AuthenticatedUser } from "@/types/express"
+
+const googleClient = new OAuth2Client(env.googleClientId)
+
+type PopulatedUser = {
+  _id: { toString(): string }
+  name: string
+  email: string
+  image?: string
+  authProvider: AuthProvider
+  roleId: {
+    _id: { toString(): string }
+    key: string
+    name: string
+  }
+  isActive: boolean
+  isEmailVerified: boolean
+  lastLoginAt?: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+async function toSafeUser(user: PopulatedUser, permissions: string[]): Promise<SafeUser> {
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    image: user.image,
+    authProvider: user.authProvider,
+    role: {
+      id: user.roleId._id.toString(),
+      key: user.roleId.key,
+      name: user.roleId.name,
+    },
+    permissions,
+    isActive: user.isActive,
+    isEmailVerified: user.isEmailVerified,
+    lastLoginAt: user.lastLoginAt,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  }
+}
+
+async function getPopulatedUser(userId: string) {
+  const user = await User.findById(userId).populate("roleId")
+  if (!user || !user.roleId || typeof user.roleId === "string") {
+    throw new ApiError(404, "User not found")
+  }
+  return user as unknown as PopulatedUser
+}
+
+function signToken(userId: string): string {
+  return jwt.sign({ sub: userId }, env.jwtSecret, {
+    expiresIn: env.jwtExpiresIn,
+  } as jwt.SignOptions)
+}
+
+async function buildAuthResult(user: PopulatedUser): Promise<AuthResult> {
+  const permissions = await getPermissionsForRole(new Types.ObjectId(user.roleId._id.toString()))
+  return {
+    user: await toSafeUser(user, permissions),
+    tokens: { accessToken: signToken(user._id.toString()) },
+  }
+}
+
+export const authService = {
+  async register(input: RegisterInput): Promise<AuthResult> {
+    const existingUser = await User.findOne({ email: input.email })
+    if (existingUser) {
+      throw new ApiError(409, "Email is already registered")
+    }
+
+    const memberRole = await Role.findOne({ key: ROLE_KEYS.MEMBER })
+    if (!memberRole) {
+      throw new ApiError(500, "Default member role is not configured")
+    }
+
+    const hashedPassword = await bcrypt.hash(input.password, 12)
+    const user = await User.create({
+      name: input.name,
+      email: input.email,
+      password: hashedPassword,
+      authProvider: "local",
+      roleId: memberRole._id,
+      isEmailVerified: false,
+      lastLoginAt: new Date(),
+    })
+
+    const populatedUser = await getPopulatedUser(user._id.toString())
+    return buildAuthResult(populatedUser)
+  },
+
+  async login(input: LoginInput): Promise<AuthResult> {
+    const user = await User.findOne({ email: input.email }).select("+password").populate("roleId")
+    if (!user || !user.password) {
+      throw new ApiError(401, "Invalid email or password")
+    }
+
+    if (!user.isActive) {
+      throw new ApiError(403, "Your account has been deactivated")
+    }
+
+    const isPasswordValid = await bcrypt.compare(input.password, user.password)
+    if (!isPasswordValid) {
+      throw new ApiError(401, "Invalid email or password")
+    }
+
+    user.lastLoginAt = new Date()
+    await user.save()
+
+    const populatedUser = await getPopulatedUser(user._id.toString())
+    return buildAuthResult(populatedUser)
+  },
+
+  async loginWithGoogle(input: GoogleAuthInput): Promise<AuthResult> {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: input.idToken,
+      audience: env.googleClientId,
+    })
+
+    const payload = ticket.getPayload()
+    if (!payload?.sub || !payload.email) {
+      throw new ApiError(401, "Invalid Google token")
+    }
+
+    const memberRole = await Role.findOne({ key: ROLE_KEYS.MEMBER })
+    if (!memberRole) {
+      throw new ApiError(500, "Default member role is not configured")
+    }
+
+    let user = await User.findOne({
+      $or: [{ googleId: payload.sub }, { email: payload.email.toLowerCase() }],
+    })
+
+    if (!user) {
+      user = await User.create({
+        name: payload.name ?? payload.email.split("@")[0],
+        email: payload.email.toLowerCase(),
+        image: payload.picture,
+        googleId: payload.sub,
+        googleEmail: payload.email.toLowerCase(),
+        authProvider: "google",
+        roleId: memberRole._id,
+        isEmailVerified: payload.email_verified ?? false,
+        lastLoginAt: new Date(),
+      })
+    } else {
+      user.name = payload.name ?? user.name
+      user.image = payload.picture ?? user.image
+      user.googleId = payload.sub
+      user.googleEmail = payload.email.toLowerCase()
+      user.isEmailVerified = payload.email_verified ?? user.isEmailVerified
+      user.lastLoginAt = new Date()
+
+      if (user.authProvider === "local" && user.password) {
+        user.authProvider = "both"
+      } else if (user.authProvider !== "both") {
+        user.authProvider = "google"
+      }
+
+      await user.save()
+    }
+
+    if (!user.isActive) {
+      throw new ApiError(403, "Your account has been deactivated")
+    }
+
+    const populatedUser = await getPopulatedUser(user._id.toString())
+    return buildAuthResult(populatedUser)
+  },
+
+  async getAuthContext(userId: string): Promise<AuthenticatedUser> {
+    const user = await getPopulatedUser(userId)
+    const permissions = await getPermissionsForRole(new Types.ObjectId(user.roleId._id.toString()))
+
+    return {
+      id: user._id.toString(),
+      email: user.email,
+      name: user.name,
+      image: user.image,
+      role: {
+        id: user.roleId._id.toString(),
+        key: user.roleId.key,
+        name: user.roleId.name,
+      },
+      permissions,
+    }
+  },
+
+  async getProfile(userId: string): Promise<SafeUser> {
+    const user = await getPopulatedUser(userId)
+    const permissions = await getPermissionsForRole(new Types.ObjectId(user.roleId._id.toString()))
+    return toSafeUser(user, permissions)
+  },
+}

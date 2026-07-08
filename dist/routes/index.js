@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.apiRoutes = void 0;
+const express_1 = require("express");
+const auth_routes_1 = require("@/modules/auth/auth.routes");
+const health_routes_1 = require("@/modules/health/health.routes");
+const rbac_routes_1 = require("@/modules/rbac/rbac.routes");
+const apiRoutes = (0, express_1.Router)();
+exports.apiRoutes = apiRoutes;
+apiRoutes.use("/health", health_routes_1.healthRoutes);
+apiRoutes.use("/auth", auth_routes_1.authRoutes);
+apiRoutes.use("/rbac", rbac_routes_1.rbacRoutes);
