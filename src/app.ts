@@ -4,6 +4,7 @@ import { env } from "@/config/env"
 import { errorHandler, notFoundHandler } from "@/middleware/error-handler"
 import { requestLogger } from "@/middleware/request-logger"
 import { apiRoutes } from "@/routes/index"
+import { renderWelcomePage } from "@/views/welcome-page"
 
 export function createApp() {
   const app = express()
@@ -21,7 +22,7 @@ export function createApp() {
   app.use(requestLogger)
 
   app.get("/", (_req, res) => {
-    res.json({ success: true, message: "Spending Calc API" })
+    res.type("html").send(renderWelcomePage())
   })
 
   app.use("/api", apiRoutes)
