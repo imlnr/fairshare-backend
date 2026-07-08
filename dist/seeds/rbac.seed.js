@@ -1,12 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.seedRbac = seedRbac;
-const roles_1 = require("@/constants/roles");
-const permissions_1 = require("@/constants/permissions");
-const permission_model_1 = require("@/modules/permissions/permission.model");
-const role_model_1 = require("@/modules/roles/role.model");
-const role_permission_model_1 = require("@/modules/roles/role-permission.model");
-const logger_1 = require("@/utils/logger");
+const roles_1 = require("../constants/roles");
+const permissions_1 = require("../constants/permissions");
+const permission_model_1 = require("../modules/permissions/permission.model");
+const role_model_1 = require("../modules/roles/role.model");
+const role_permission_model_1 = require("../modules/roles/role-permission.model");
+const logger_1 = require("../utils/logger");
 const ROLE_DESCRIPTIONS = {
     admin: "Full system access across users, rooms, and settings.",
     room_manager: "Manages rooms, members, and shared expenses.",
@@ -21,7 +21,7 @@ async function seedRbac() {
                 action: permission.action,
                 description: permission.description,
             },
-        }, { upsert: true, new: true });
+        }, { upsert: true, returnDocument: "after" });
     }
     for (const roleKey of Object.values(roles_1.ROLE_KEYS)) {
         await role_model_1.Role.findOneAndUpdate({ key: roleKey }, {
@@ -30,7 +30,7 @@ async function seedRbac() {
                 description: ROLE_DESCRIPTIONS[roleKey],
                 isSystem: true,
             },
-        }, { upsert: true, new: true });
+        }, { upsert: true, returnDocument: "after" });
     }
     const permissions = await permission_model_1.Permission.find();
     const permissionMap = new Map(permissions.map((permission) => [permission.key, permission._id]));

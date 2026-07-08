@@ -3,9 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getPermissionsForRole = getPermissionsForRole;
 exports.getRoleByKey = getRoleByKey;
 exports.roleHasPermission = roleHasPermission;
-const permission_model_1 = require("@/modules/permissions/permission.model");
-const role_permission_model_1 = require("@/modules/roles/role-permission.model");
-const role_model_1 = require("@/modules/roles/role.model");
+const permission_model_1 = require("../../modules/permissions/permission.model");
+const role_permission_model_1 = require("../../modules/roles/role-permission.model");
+const role_model_1 = require("../../modules/roles/role.model");
 async function getPermissionsForRole(roleId) {
     const rolePermissions = await role_permission_model_1.RolePermission.find({ roleId }).populate("permissionId");
     return rolePermissions

@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.joinRequestRoutes = void 0;
+const express_1 = require("express");
+const authorize_1 = require("../../middleware/authorize");
+const join_request_controller_1 = require("../../modules/join-requests/join-request.controller");
+const joinRequestRoutes = (0, express_1.Router)();
+exports.joinRequestRoutes = joinRequestRoutes;
+joinRequestRoutes.post("/room-manager", join_request_controller_1.joinRequestController.submit);
+joinRequestRoutes.get("/", authorize_1.authenticate, (0, authorize_1.authorize)("join_requests:read"), join_request_controller_1.joinRequestController.list);
+joinRequestRoutes.post("/:id/approve", authorize_1.authenticate, (0, authorize_1.authorize)("join_requests:review"), join_request_controller_1.joinRequestController.approve);
+joinRequestRoutes.post("/:id/reject", authorize_1.authenticate, (0, authorize_1.authorize)("join_requests:review"), join_request_controller_1.joinRequestController.reject);

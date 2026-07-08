@@ -1,18 +1,9 @@
-import { createApp } from "@/app"
-import { connectDatabase } from "@/config/database"
 import { env } from "@/config/env"
-import { seedRbac } from "@/seeds/rbac.seed"
-import { seedEmailTemplates } from "@/seeds/email-templates.seed"
-import { backfillRoomManagers } from "@/seeds/room-managers-backfill.seed"
+import { getApplication } from "@/bootstrap"
 import { logger } from "@/utils/logger"
 
 async function startServer() {
-  await connectDatabase()
-  await seedRbac()
-  await seedEmailTemplates()
-  await backfillRoomManagers()
-
-  const app = createApp()
+  const app = await getApplication()
 
   app.listen(env.port, () => {
     logger.info(`Server running on http://localhost:${env.port}`)

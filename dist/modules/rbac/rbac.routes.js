@@ -2,8 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rbacRoutes = void 0;
 const express_1 = require("express");
-const authorize_1 = require("@/middleware/authorize");
-const rbac_controller_1 = require("@/modules/rbac/rbac.controller");
+const authorize_1 = require("../../middleware/authorize");
+const rbac_controller_1 = require("../../modules/rbac/rbac.controller");
 const rbacRoutes = (0, express_1.Router)();
 exports.rbacRoutes = rbacRoutes;
 rbacRoutes.use(authorize_1.authenticate);

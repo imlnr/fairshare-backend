@@ -2,11 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authRoutes = void 0;
 const express_1 = require("express");
-const auth_controller_1 = require("@/modules/auth/auth.controller");
-const authorize_1 = require("@/middleware/authorize");
+const auth_controller_1 = require("../../modules/auth/auth.controller");
+const authorize_1 = require("../../middleware/authorize");
 const authRoutes = (0, express_1.Router)();
 exports.authRoutes = authRoutes;
-authRoutes.post("/register", auth_controller_1.authController.register);
 authRoutes.post("/login", auth_controller_1.authController.login);
 authRoutes.post("/google", auth_controller_1.authController.googleLogin);
 authRoutes.get("/me", authorize_1.authenticate, auth_controller_1.authController.getMe);

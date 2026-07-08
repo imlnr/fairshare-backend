@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.ApiResponse = void 0;
 exports.sendSuccess = sendSuccess;
 exports.sendError = sendError;
 function sendSuccess(data, message = "Success") {
@@ -8,3 +9,7 @@ function sendSuccess(data, message = "Success") {
 function sendError(message, errors) {
     return { success: false, message, errors };
 }
+exports.ApiResponse = {
+    success: (data, message = "Success") => sendSuccess(data, message),
+    error: (message, errors) => sendError(message, errors),
+};

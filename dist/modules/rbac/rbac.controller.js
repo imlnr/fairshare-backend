@@ -1,11 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rbacController = void 0;
-const async_handler_1 = require("@/middleware/async-handler");
-const api_response_1 = require("@/utils/api-response");
-const permission_model_1 = require("@/modules/permissions/permission.model");
-const role_model_1 = require("@/modules/roles/role.model");
-const role_permission_model_1 = require("@/modules/roles/role-permission.model");
+const async_handler_1 = require("../../middleware/async-handler");
+const api_response_1 = require("../../utils/api-response");
+const permission_model_1 = require("../../modules/permissions/permission.model");
+const role_model_1 = require("../../modules/roles/role.model");
+const role_permission_model_1 = require("../../modules/roles/role-permission.model");
 exports.rbacController = {
     listRoles: (0, async_handler_1.asyncHandler)(async (_req, res) => {
         const roles = await role_model_1.Role.find().sort({ name: 1 });

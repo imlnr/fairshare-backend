@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Role = void 0;
 const mongoose_1 = require("mongoose");
-const roles_1 = require("@/constants/roles");
+const roles_1 = require("../../constants/roles");
 const roleSchema = new mongoose_1.Schema({
     key: {
         type: String,
