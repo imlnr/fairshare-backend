@@ -2,6 +2,18 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Expense = void 0;
 const mongoose_1 = require("mongoose");
+const memberShareSchema = new mongoose_1.Schema({
+    userId: {
+        type: mongoose_1.Types.ObjectId,
+        ref: "User",
+        required: true,
+    },
+    share: {
+        type: Number,
+        required: true,
+        min: 0,
+    },
+}, { _id: false });
 const expenseSchema = new mongoose_1.Schema({
     roomId: {
         type: mongoose_1.Types.ObjectId,
@@ -39,6 +51,11 @@ const expenseSchema = new mongoose_1.Schema({
             validator: (arr) => arr.length >= 1,
             message: "At least one member must be present for an expense",
         },
+    },
+    /** Backend-computed equal split for each present member */
+    memberShares: {
+        type: [memberShareSchema],
+        default: [],
     },
     billPeriod: {
         type: String,

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.expenseService = void 0;
 const api_error_1 = require("../../utils/api-error");
+const split_math_1 = require("../../utils/split-math");
 const expense_model_1 = require("../../modules/expenses/expense.model");
 const room_model_1 = require("../../modules/rooms/room.model");
 const room_member_model_1 = require("../../modules/rooms/room-member.model");
@@ -13,12 +14,26 @@ function toBillPeriod(date) {
     const month = String(d.getMonth() + 1).padStart(2, "0");
     return `${year}-${month}`;
 }
+function buildMemberShares(amount, presentMemberIds) {
+    return (0, split_math_1.computeEqualShares)(amount, presentMemberIds).map((entry) => ({
+        userId: entry.userId,
+        share: entry.share,
+    }));
+}
 exports.expenseService = {
     async listExpenses(roomId, period) {
         const query = { roomId };
         if (period)
             query.billPeriod = period;
-        return expense_model_1.Expense.find(query).sort({ date: -1 }).lean();
+        const expenses = await expense_model_1.Expense.find(query).sort({ date: -1 });
+        // Backfill shares for older expenses that predate memberShares
+        for (const expense of expenses) {
+            if (!expense.memberShares || expense.memberShares.length === 0) {
+                expense.set("memberShares", buildMemberShares(expense.amount, expense.presentMemberIds.map((id) => id.toString())));
+                await expense.save();
+            }
+        }
+        return expenses.map((expense) => expense.toObject());
     },
     async createExpense(roomId, input, user) {
         const expenseDate = new Date(input.date);
@@ -66,6 +81,7 @@ exports.expenseService = {
         if (!input.presentMemberIds.includes(input.paidByUserId)) {
             throw new api_error_1.ApiError(400, "Paid-by person must be included in present members");
         }
+        const memberShares = buildMemberShares(input.amount, input.presentMemberIds);
         return expense_model_1.Expense.create({
             roomId,
             title: input.title,
@@ -74,6 +90,7 @@ exports.expenseService = {
             date: expenseDate,
             paidByUserId: input.paidByUserId,
             presentMemberIds: input.presentMemberIds,
+            memberShares,
             billPeriod: toBillPeriod(expenseDate),
             createdBy: user.id,
         });
@@ -86,9 +103,25 @@ exports.expenseService = {
             throw new api_error_1.ApiError(409, "Expense is locked. Reopen the bill to edit.");
         }
         if (update.date) {
-            update = { ...update, billPeriod: toBillPeriod(update.date) };
+            expense.date = new Date(update.date);
+            expense.billPeriod = toBillPeriod(update.date);
         }
-        Object.assign(expense, update);
+        if (update.title !== undefined)
+            expense.title = update.title;
+        if (update.amount !== undefined)
+            expense.amount = update.amount;
+        if (update.description !== undefined)
+            expense.description = update.description;
+        if (update.paidByUserId !== undefined)
+            expense.paidByUserId = update.paidByUserId;
+        if (update.presentMemberIds !== undefined) {
+            expense.presentMemberIds = update.presentMemberIds;
+        }
+        if (update.isLocked !== undefined)
+            expense.isLocked = update.isLocked;
+        const amount = expense.amount;
+        const presentIds = expense.presentMemberIds.map((id) => id.toString());
+        expense.set("memberShares", buildMemberShares(amount, presentIds));
         return expense.save();
     },
     async deleteExpense(expId) {

@@ -2,46 +2,23 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.calculateBill = calculateBill;
 exports.validatePresence = validatePresence;
-/**
- * Round a number to 2 decimal places.
- */
-function round2(n) {
-    return Math.round(n * 100) / 100;
-}
+const split_math_1 = require("../../utils/split-math");
 /**
  * Core bill calculation engine.
  *
- * Formula per member:
- *   share_i          = Σ (expense.amount / presentCount)  for each expense where member is present
- *   netPaidFor_i     = Σ expense.amount                    for each expense where member is paidBy
- *   net_current      = share_i - netPaidFor_i
- *   previousPending  = previous bill's finalAmount (0 if first bill)
- *   paymentsReceived = Σ payments made by this member in this period
- *   finalAmount      = net_current + previousPending - paymentsReceived
- *     positive → member OWES money (payable)
- *     negative → member is OWED money (receivable)
- *
- * Rounding:
- *   Each expense share is computed at full float precision.
- *   Accumulated per member at full precision.
- *   At finalization, totals are rounded to 2dp.
- *   Any rounding remainder (from n-way splits) is absorbed by the
- *   first present member (sorted by userId string for determinism).
+ * Prefer stored expense.memberShares when present; otherwise compute equal shares.
  */
 function calculateBill(input) {
     const { expenses, activeMembers, previousBillSummaries, paymentsThisPeriod } = input;
-    // Index previous pending by userId
     const previousPendingMap = new Map();
     for (const prev of previousBillSummaries) {
         previousPendingMap.set(prev.userId, prev.finalAmount);
     }
-    // Index payments by payerId
     const paymentsMap = new Map();
     for (const payment of paymentsThisPeriod) {
         const existing = paymentsMap.get(payment.payerId) ?? 0;
         paymentsMap.set(payment.payerId, existing + payment.amount);
     }
-    // Accumulators at full precision
     const shareMap = new Map();
     const netPaidForMap = new Map();
     for (const member of activeMembers) {
@@ -49,52 +26,49 @@ function calculateBill(input) {
         netPaidForMap.set(member.userId, 0);
     }
     for (const expense of expenses) {
-        const presentIds = expense.presentMemberIds.map((id) => id.toString());
-        if (presentIds.length === 0)
-            continue;
-        const rawShare = expense.amount / presentIds.length;
-        // Sort presentIds for deterministic remainder assignment
-        const sortedPresent = [...presentIds].sort();
-        // Compute rounded shares with remainder absorbed by first member
-        const roundedShare = round2(rawShare);
-        const totalRounded = round2(roundedShare * presentIds.length);
-        const remainder = round2(expense.amount - totalRounded);
-        for (let i = 0; i < sortedPresent.length; i++) {
-            const uid = sortedPresent[i];
-            const memberShare = i === 0 ? round2(roundedShare + remainder) : roundedShare;
-            const existing = shareMap.get(uid) ?? 0;
-            shareMap.set(uid, existing + memberShare);
+        const storedShares = expense.memberShares ?? [];
+        const shares = storedShares.length > 0
+            ? storedShares.map((s) => ({
+                userId: s.userId.toString(),
+                share: s.share,
+            }))
+            : (0, split_math_1.computeEqualShares)(expense.amount, expense.presentMemberIds.map((id) => id.toString()));
+        for (const entry of shares) {
+            if (!shareMap.has(entry.userId)) {
+                shareMap.set(entry.userId, 0);
+                netPaidForMap.set(entry.userId, 0);
+            }
+            shareMap.set(entry.userId, (shareMap.get(entry.userId) ?? 0) + entry.share);
         }
-        // paidBy credit
         if (expense.paidByUserId) {
             const paidById = expense.paidByUserId.toString();
-            const existingPaid = netPaidForMap.get(paidById) ?? 0;
-            netPaidForMap.set(paidById, existingPaid + expense.amount);
+            if (!netPaidForMap.has(paidById)) {
+                shareMap.set(paidById, shareMap.get(paidById) ?? 0);
+                netPaidForMap.set(paidById, 0);
+            }
+            netPaidForMap.set(paidById, (netPaidForMap.get(paidById) ?? 0) + expense.amount);
         }
     }
-    const memberSummaries = activeMembers.map((member) => {
-        const currentShare = round2(shareMap.get(member.userId) ?? 0);
-        const netPaidFor = round2(netPaidForMap.get(member.userId) ?? 0);
-        const previousPending = round2(previousPendingMap.get(member.userId) ?? 0);
-        const paymentsReceived = round2(paymentsMap.get(member.userId) ?? 0);
-        // net_current = what member owes the pool (their share) minus what they fronted
-        const netCurrent = round2(currentShare - netPaidFor);
-        const finalAmount = round2(netCurrent + previousPending - paymentsReceived);
-        let settlementStatus = "pending";
-        if (finalAmount <= 0) {
-            settlementStatus = "settled";
-        }
-        else if (paymentsReceived > 0) {
-            settlementStatus = "partial";
-        }
+    const memberIds = new Set([
+        ...activeMembers.map((m) => m.userId),
+        ...shareMap.keys(),
+        ...netPaidForMap.keys(),
+    ]);
+    const memberSummaries = [...memberIds].sort().map((userId) => {
+        const currentShare = (0, split_math_1.round2)(shareMap.get(userId) ?? 0);
+        const netPaidFor = (0, split_math_1.round2)(netPaidForMap.get(userId) ?? 0);
+        const previousPending = (0, split_math_1.round2)(previousPendingMap.get(userId) ?? 0);
+        const paymentsReceived = (0, split_math_1.round2)(paymentsMap.get(userId) ?? 0);
+        const netCurrent = (0, split_math_1.round2)(currentShare - netPaidFor);
+        const finalAmount = (0, split_math_1.round2)(netCurrent + previousPending - paymentsReceived);
         return {
-            userId: member.userId,
+            userId,
             currentShare,
             previousPending,
             paymentsReceived,
             netPaidFor,
             finalAmount,
-            settlementStatus,
+            settlementStatus: (0, split_math_1.settlementStatusFor)(finalAmount, paymentsReceived),
         };
     });
     return { memberSummaries };

@@ -1,4 +1,9 @@
 import { ApiError } from "@/utils/api-error"
+import {
+  computeSettlementTransfers,
+  round2,
+  settlementStatusFor,
+} from "@/utils/split-math"
 import { Payment } from "@/modules/payments/payment.model"
 import { Bill } from "@/modules/bills/bill.model"
 
@@ -16,7 +21,6 @@ export const paymentService = {
     const bill = await Bill.findById(billId)
     if (!bill) throw new ApiError(404, "Bill not found")
 
-    // Find the member's summary
     const summary = bill.memberSummaries.find((s) => s.userId.toString() === input.payerId)
     if (!summary) {
       throw new ApiError(400, "This user does not have a summary in the specified bill")
@@ -32,29 +36,36 @@ export const paymentService = {
       paidAt: input.paidAt ?? new Date(),
     })
 
-    // Recalculate settlement status for this member
-    const allPayments = await Payment.find({ billId, payerId: input.payerId })
-    const totalPaid = allPayments.reduce((sum, p) => sum + p.amount, 0)
-    const newFinal = summary.finalAmount - totalPaid
-
-    let settlementStatus: "pending" | "partial" | "settled"
-    if (newFinal <= 0) {
-      settlementStatus = "settled"
-    } else if (totalPaid > 0) {
-      settlementStatus = "partial"
-    } else {
-      settlementStatus = "pending"
+    const allPayments = await Payment.find({ billId }).lean()
+    const paidByUser = new Map<string, number>()
+    for (const row of allPayments) {
+      const key = row.payerId.toString()
+      paidByUser.set(key, round2((paidByUser.get(key) ?? 0) + row.amount))
     }
 
-    await Bill.updateOne(
-      { _id: billId, "memberSummaries.userId": input.payerId },
-      {
-        $set: {
-          "memberSummaries.$.paymentsReceived": totalPaid,
-          "memberSummaries.$.settlementStatus": settlementStatus,
-        },
-      }
+    for (const member of bill.memberSummaries) {
+      const userId = member.userId.toString()
+      const paymentsReceived = paidByUser.get(userId) ?? 0
+      const netBeforePayments = round2(
+        member.currentShare - member.netPaidFor + member.previousPending
+      )
+      const finalAmount = round2(netBeforePayments - paymentsReceived)
+      member.paymentsReceived = paymentsReceived
+      member.finalAmount = finalAmount
+      member.settlementStatus = settlementStatusFor(finalAmount, paymentsReceived)
+    }
+
+    bill.set(
+      "settlementTransfers",
+      computeSettlementTransfers(
+        bill.memberSummaries.map((s) => ({
+          userId: s.userId.toString(),
+          finalAmount: s.finalAmount,
+        }))
+      )
     )
+
+    await bill.save()
 
     return payment
   },

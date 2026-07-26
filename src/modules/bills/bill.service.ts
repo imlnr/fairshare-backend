@@ -1,82 +1,165 @@
 import { ApiError } from "@/utils/api-error"
+import { computeEqualShares, computeSettlementTransfers } from "@/utils/split-math"
 import { Bill } from "@/modules/bills/bill.model"
 import { Expense } from "@/modules/expenses/expense.model"
 import { Payment } from "@/modules/payments/payment.model"
+import { Room } from "@/modules/rooms/room.model"
 import { RoomMember } from "@/modules/rooms/room-member.model"
+import { User } from "@/modules/users/user.model"
 import { calculateBill } from "@/modules/bills/bill-calculator"
 import { ROLE_KEYS } from "@/constants/roles"
 import type { AuthenticatedUser } from "@/types/express"
 
+async function resolveActiveMembersForBill(
+  roomId: string,
+  expenses: { presentMemberIds: unknown[]; paidByUserId?: unknown }[]
+) {
+  const ids = new Set<string>()
+
+  for (const expense of expenses) {
+    for (const id of expense.presentMemberIds) {
+      ids.add(String(id))
+    }
+    if (expense.paidByUserId) {
+      ids.add(String(expense.paidByUserId))
+    }
+  }
+
+  const memberships = await RoomMember.find({ roomId, isActive: true }).lean()
+  for (const membership of memberships) {
+    ids.add(membership.userId.toString())
+  }
+
+  const room = await Room.findById(roomId).lean()
+  if (room?.managerId) {
+    ids.add(room.managerId.toString())
+  }
+
+  const users = await User.find({ _id: { $in: [...ids] } })
+    .select("name")
+    .lean()
+
+  return users.map((user) => ({
+    userId: user._id.toString(),
+    name: user.name,
+  }))
+}
+
+function transfersFromSummaries(
+  summaries: { userId: unknown; finalAmount: number }[]
+) {
+  return computeSettlementTransfers(
+    summaries.map((s) => ({
+      userId: String(s.userId),
+      finalAmount: s.finalAmount,
+    }))
+  )
+}
+
 export const billService = {
   async listBills(roomId: string) {
-    return Bill.find({ roomId }).sort({ period: -1 }).lean()
+    const bills = await Bill.find({ roomId }).sort({ period: -1 })
+
+    for (const bill of bills) {
+      if (!bill.settlementTransfers || bill.settlementTransfers.length === 0) {
+        const transfers = transfersFromSummaries(bill.memberSummaries)
+        if (transfers.length > 0 || bill.memberSummaries.length > 0) {
+          bill.set("settlementTransfers", transfers)
+          await bill.save()
+        }
+      }
+    }
+
+    return bills.map((bill) => bill.toObject())
   },
 
   async getBill(billId: string, user: AuthenticatedUser) {
-    const bill = await Bill.findById(billId).lean()
+    const bill = await Bill.findById(billId)
     if (!bill) throw new ApiError(404, "Bill not found")
 
-    // Members only see their own summary
+    if (!bill.settlementTransfers || bill.settlementTransfers.length === 0) {
+      bill.set("settlementTransfers", transfersFromSummaries(bill.memberSummaries))
+      await bill.save()
+    }
+
+    const lean = bill.toObject()
+
     if (
       user.role.key !== ROLE_KEYS.ADMIN &&
       user.role.key !== ROLE_KEYS.ROOM_MANAGER
     ) {
-      const ownSummary = bill.memberSummaries.find(
+      const ownSummary = lean.memberSummaries.find(
         (s) => s.userId.toString() === user.id
       )
-      return { ...bill, memberSummaries: ownSummary ? [ownSummary] : [] }
+      const ownTransfers = lean.settlementTransfers.filter(
+        (t) =>
+          t.fromUserId.toString() === user.id || t.toUserId.toString() === user.id
+      )
+      return {
+        ...lean,
+        memberSummaries: ownSummary ? [ownSummary] : [],
+        settlementTransfers: ownTransfers,
+      }
     }
 
-    return bill
+    return lean
   },
 
   async generateBill(roomId: string, period: string, generatedById: string) {
-    // Validate period format
     if (!/^\d{4}-\d{2}$/.test(period)) {
       throw new ApiError(400, "Period must be in YYYY-MM format")
     }
 
-    // Check for existing locked bill
     const existingBill = await Bill.findOne({ roomId, period })
     if (existingBill?.status === "locked") {
-      throw new ApiError(409, `A locked bill already exists for ${period} (version ${existingBill.version}). Reopen it to regenerate.`)
+      throw new ApiError(
+        409,
+        `A locked bill already exists for ${period} (version ${existingBill.version}). Reopen it to regenerate.`
+      )
     }
 
-    // Fetch expenses for this period
-    const expenses = await Expense.find({ roomId, billPeriod: period }).lean()
+    const expenses = await Expense.find({ roomId, billPeriod: period })
     if (expenses.length === 0) {
       throw new ApiError(400, `No expenses found for period ${period}`)
     }
 
-    // Active members at time of generation
-    const memberships = await RoomMember.find({ roomId, isActive: true })
-      .populate("userId", "name email")
-      .lean()
-
-    if (memberships.length === 0) {
-      throw new ApiError(400, "No active members in this room")
+    // Ensure every expense has persisted shares before bill math
+    for (const expense of expenses) {
+      if (!expense.memberShares || expense.memberShares.length === 0) {
+        expense.set(
+          "memberShares",
+          computeEqualShares(
+            expense.amount,
+            expense.presentMemberIds.map((id) => id.toString())
+          )
+        )
+        await expense.save()
+      }
     }
 
-    const activeMembers = memberships.map((m) => {
-      const u = m.userId as unknown as { _id: { toString(): string }; name: string }
-      return { userId: u._id.toString(), name: u.name }
-    })
+    const leanExpenses = expenses.map((e) => e.toObject())
+    const activeMembers = await resolveActiveMembersForBill(roomId, leanExpenses)
 
-    // Get previous bill to carry forward pending amounts
+    if (activeMembers.length === 0) {
+      throw new ApiError(400, "No participants found for this bill period")
+    }
+
     const [prevYear, prevMonth] = period.split("-").map(Number)
     const prevDate = new Date(prevYear, prevMonth - 2, 1)
     const prevPeriod = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`
-    const previousBill = await Bill.findOne({ roomId, period: prevPeriod, status: "locked" }).lean()
+    const previousBill = await Bill.findOne({
+      roomId,
+      period: prevPeriod,
+      status: "locked",
+    }).lean()
 
     const previousBillSummaries = (previousBill?.memberSummaries ?? []).map((s) => ({
       userId: s.userId.toString(),
       finalAmount: s.finalAmount,
     }))
 
-    // Get payments recorded for this period's bill (if draft exists)
-    const existingBillForPayments = existingBill
-    const paymentsThisPeriod = existingBillForPayments
-      ? await Payment.find({ billId: existingBillForPayments._id }).lean()
+    const paymentsThisPeriod = existingBill
+      ? await Payment.find({ billId: existingBill._id }).lean()
       : []
 
     const paymentsSummary = paymentsThisPeriod.map((p) => ({
@@ -85,19 +168,20 @@ export const billService = {
     }))
 
     const { memberSummaries } = calculateBill({
-      expenses: expenses as Parameters<typeof calculateBill>[0]["expenses"],
+      expenses: leanExpenses as Parameters<typeof calculateBill>[0]["expenses"],
       activeMembers,
       previousBillSummaries,
       paymentsThisPeriod: paymentsSummary,
     })
 
-    const expenseIds = expenses.map((e) => (e as { _id: unknown })._id)
+    const settlementTransfers = transfersFromSummaries(memberSummaries)
+    const expenseIds = leanExpenses.map((e) => e._id)
 
     if (existingBill) {
-      // Regenerate: update existing draft
       await Bill.findByIdAndUpdate(existingBill._id, {
         $set: {
           memberSummaries,
+          settlementTransfers,
           lockedExpenseIds: expenseIds,
           status: "locked",
           generatedAt: new Date(),
@@ -114,19 +198,17 @@ export const billService = {
         generatedAt: new Date(),
         generatedBy: generatedById,
         memberSummaries,
+        settlementTransfers,
         lockedExpenseIds: expenseIds,
       })
     }
 
-    const bill = await Bill.findOne({ roomId, period })
-
-    // Lock all included expenses
     await Expense.updateMany(
       { _id: { $in: expenseIds } },
       { $set: { isLocked: true } }
     )
 
-    return bill
+    return Bill.findOne({ roomId, period }).lean()
   },
 
   async reopenBill(billId: string) {
@@ -136,7 +218,6 @@ export const billService = {
       throw new ApiError(400, "Only locked bills can be reopened")
     }
 
-    // Unlock associated expenses
     await Expense.updateMany(
       { _id: { $in: bill.lockedExpenseIds } },
       { $set: { isLocked: false } }

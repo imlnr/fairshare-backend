@@ -1,4 +1,5 @@
 import { ApiError } from "@/utils/api-error"
+import { computeEqualShares } from "@/utils/split-math"
 import { Expense } from "@/modules/expenses/expense.model"
 import { Room } from "@/modules/rooms/room.model"
 import { RoomMember } from "@/modules/rooms/room-member.model"
@@ -22,11 +23,34 @@ function toBillPeriod(date: Date | string): string {
   return `${year}-${month}`
 }
 
+function buildMemberShares(amount: number, presentMemberIds: string[]) {
+  return computeEqualShares(amount, presentMemberIds).map((entry) => ({
+    userId: entry.userId,
+    share: entry.share,
+  }))
+}
+
 export const expenseService = {
   async listExpenses(roomId: string, period?: string) {
     const query: Record<string, unknown> = { roomId }
     if (period) query.billPeriod = period
-    return Expense.find(query).sort({ date: -1 }).lean()
+    const expenses = await Expense.find(query).sort({ date: -1 })
+
+    // Backfill shares for older expenses that predate memberShares
+    for (const expense of expenses) {
+      if (!expense.memberShares || expense.memberShares.length === 0) {
+        expense.set(
+          "memberShares",
+          buildMemberShares(
+            expense.amount,
+            expense.presentMemberIds.map((id) => id.toString())
+          )
+        )
+        await expense.save()
+      }
+    }
+
+    return expenses.map((expense) => expense.toObject())
   },
 
   async createExpense(
@@ -109,6 +133,8 @@ export const expenseService = {
       throw new ApiError(400, "Paid-by person must be included in present members")
     }
 
+    const memberShares = buildMemberShares(input.amount, input.presentMemberIds)
+
     return Expense.create({
       roomId,
       title: input.title,
@@ -117,6 +143,7 @@ export const expenseService = {
       date: expenseDate,
       paidByUserId: input.paidByUserId,
       presentMemberIds: input.presentMemberIds,
+      memberShares,
       billPeriod: toBillPeriod(expenseDate),
       createdBy: user.id,
     })
@@ -133,12 +160,22 @@ export const expenseService = {
     }
 
     if (update.date) {
-      update = { ...update, billPeriod: toBillPeriod(update.date) } as typeof update & {
-        billPeriod: string
-      }
+      expense.date = new Date(update.date)
+      expense.billPeriod = toBillPeriod(update.date)
     }
+    if (update.title !== undefined) expense.title = update.title
+    if (update.amount !== undefined) expense.amount = update.amount
+    if (update.description !== undefined) expense.description = update.description
+    if (update.paidByUserId !== undefined) expense.paidByUserId = update.paidByUserId as never
+    if (update.presentMemberIds !== undefined) {
+      expense.presentMemberIds = update.presentMemberIds as never
+    }
+    if (update.isLocked !== undefined) expense.isLocked = update.isLocked
 
-    Object.assign(expense, update)
+    const amount = expense.amount
+    const presentIds = expense.presentMemberIds.map((id) => id.toString())
+    expense.set("memberShares", buildMemberShares(amount, presentIds))
+
     return expense.save()
   },
 

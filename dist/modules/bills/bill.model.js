@@ -17,6 +17,11 @@ const memberSummarySchema = new mongoose_1.Schema({
         default: "pending",
     },
 }, { _id: false });
+const settlementTransferSchema = new mongoose_1.Schema({
+    fromUserId: { type: mongoose_1.Types.ObjectId, ref: "User", required: true },
+    toUserId: { type: mongoose_1.Types.ObjectId, ref: "User", required: true },
+    amount: { type: Number, required: true, min: 0.01 },
+}, { _id: false });
 const billSchema = new mongoose_1.Schema({
     roomId: {
         type: mongoose_1.Types.ObjectId,
@@ -47,6 +52,11 @@ const billSchema = new mongoose_1.Schema({
     },
     memberSummaries: {
         type: [memberSummarySchema],
+        default: [],
+    },
+    /** Backend-computed who-pays-whom plan from finalAmounts */
+    settlementTransfers: {
+        type: [settlementTransferSchema],
         default: [],
     },
     lockedExpenseIds: {

@@ -23,6 +23,15 @@ const memberSummarySchema = new Schema(
   { _id: false }
 )
 
+const settlementTransferSchema = new Schema(
+  {
+    fromUserId: { type: Types.ObjectId, ref: "User", required: true },
+    toUserId: { type: Types.ObjectId, ref: "User", required: true },
+    amount: { type: Number, required: true, min: 0.01 },
+  },
+  { _id: false }
+)
+
 const billSchema = new Schema(
   {
     roomId: {
@@ -54,6 +63,11 @@ const billSchema = new Schema(
     },
     memberSummaries: {
       type: [memberSummarySchema],
+      default: [],
+    },
+    /** Backend-computed who-pays-whom plan from finalAmounts */
+    settlementTransfers: {
+      type: [settlementTransferSchema],
       default: [],
     },
     lockedExpenseIds: {
