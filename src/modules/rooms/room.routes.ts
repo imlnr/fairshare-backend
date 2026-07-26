@@ -68,14 +68,14 @@ roomRoutes.post(
 roomRoutes.patch(
   "/:roomId/expenses/:expId",
   authenticate,
-  requireRoomAccess("manager"),
+  requireRoomAccess("member"),
   requireExpenseUnlocked,
   expenseController.updateExpense
 )
 roomRoutes.delete(
   "/:roomId/expenses/:expId",
   authenticate,
-  requireRoomAccess("manager"),
+  requireRoomAccess("member"),
   requireExpenseUnlocked,
   expenseController.deleteExpense
 )

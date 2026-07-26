@@ -1,5 +1,5 @@
 import { ApiError } from "@/utils/api-error"
-import { computeEqualShares, computeSettlementTransfers } from "@/utils/split-math"
+import { computeSettlementTransfers } from "@/utils/split-math"
 import { Bill } from "@/modules/bills/bill.model"
 import { Expense } from "@/modules/expenses/expense.model"
 import { Payment } from "@/modules/payments/payment.model"
@@ -119,20 +119,6 @@ export const billService = {
     const expenses = await Expense.find({ roomId, billPeriod: period })
     if (expenses.length === 0) {
       throw new ApiError(400, `No expenses found for period ${period}`)
-    }
-
-    // Persist missing shares once at generate time (not on every list)
-    for (const expense of expenses) {
-      if (!expense.memberShares || expense.memberShares.length === 0) {
-        expense.set(
-          "memberShares",
-          computeEqualShares(
-            expense.amount,
-            expense.presentMemberIds.map((id) => id.toString())
-          )
-        )
-        await expense.save()
-      }
     }
 
     const leanExpenses = expenses.map((e) => e.toObject())

@@ -1,21 +1,5 @@
 import { Schema, model, type InferSchemaType, Types } from "mongoose"
 
-const memberShareSchema = new Schema(
-  {
-    userId: {
-      type: Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    share: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
-  },
-  { _id: false }
-)
-
 const expenseSchema = new Schema(
   {
     roomId: {
@@ -54,11 +38,6 @@ const expenseSchema = new Schema(
         validator: (arr: Types.ObjectId[]) => arr.length >= 1,
         message: "At least one member must be present for an expense",
       },
-    },
-    /** Backend-computed equal split for each present member */
-    memberShares: {
-      type: [memberShareSchema],
-      default: [],
     },
     billPeriod: {
       type: String,

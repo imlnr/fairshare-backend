@@ -11,7 +11,6 @@ export type MemberShareEntry = {
 export type BillCalculationInput = {
   expenses: (ExpenseDocument & {
     _id: Types.ObjectId
-    memberShares?: { userId: Types.ObjectId | string; share: number }[]
   })[]
   activeMembers: { userId: string; name: string }[]
   previousBillSummaries: {
@@ -38,8 +37,7 @@ export type BillCalculationResult = {
 
 /**
  * Core bill calculation engine.
- *
- * Prefer stored expense.memberShares when present; otherwise compute equal shares.
+ * Equal shares are computed from each expense's amount + presentMemberIds.
  */
 export function calculateBill(input: BillCalculationInput): BillCalculationResult {
   const { expenses, activeMembers, previousBillSummaries, paymentsThisPeriod } = input
@@ -64,17 +62,10 @@ export function calculateBill(input: BillCalculationInput): BillCalculationResul
   }
 
   for (const expense of expenses) {
-    const storedShares = expense.memberShares ?? []
-    const shares =
-      storedShares.length > 0
-        ? storedShares.map((s) => ({
-            userId: s.userId.toString(),
-            share: s.share,
-          }))
-        : computeEqualShares(
-            expense.amount,
-            expense.presentMemberIds.map((id) => id.toString())
-          )
+    const shares = computeEqualShares(
+      expense.amount,
+      expense.presentMemberIds.map((id) => id.toString())
+    )
 
     for (const entry of shares) {
       if (!shareMap.has(entry.userId)) {

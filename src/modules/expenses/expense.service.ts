@@ -1,11 +1,15 @@
 import { ApiError } from "@/utils/api-error"
 import { computeEqualShares } from "@/utils/split-math"
 import { Expense } from "@/modules/expenses/expense.model"
+import type { ExpenseDocument } from "@/modules/expenses/expense.model"
 import { Room } from "@/modules/rooms/room.model"
 import { RoomMember } from "@/modules/rooms/room-member.model"
 import { validatePresence } from "@/modules/bills/bill-calculator"
 import { ROLE_KEYS } from "@/constants/roles"
 import type { AuthenticatedUser } from "@/types/express"
+
+/** Payer (or room manager) may edit/delete an expense only within this window after creation. */
+export const EXPENSE_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000
 
 type CreateExpenseInput = {
   title: string
@@ -16,6 +20,54 @@ type CreateExpenseInput = {
   presentMemberIds: string[]
 }
 
+type ExpenseLean = {
+  amount: number
+  presentMemberIds: unknown[]
+  [key: string]: unknown
+}
+
+function isWithinEditWindow(createdAt: Date) {
+  return Date.now() - createdAt.getTime() <= EXPENSE_EDIT_WINDOW_MS
+}
+
+async function assertCanMutateExpense(
+  roomId: string,
+  expense: ExpenseDocument & { createdAt?: Date },
+  user: AuthenticatedUser
+) {
+  if (expense.isLocked) {
+    throw new ApiError(409, "Expense is locked. Reopen the bill to edit.")
+  }
+
+  const createdAt = expense.createdAt ?? new Date(0)
+  if (!isWithinEditWindow(createdAt)) {
+    throw new ApiError(
+      403,
+      "The 24-hour edit window has closed. This expense can no longer be updated."
+    )
+  }
+
+  const isAdmin = user.role.key === ROLE_KEYS.ADMIN
+  const paidBy = expense.paidByUserId?.toString()
+  const isPayer = paidBy === user.id
+
+  if (isAdmin || isPayer) return
+
+  const room = await Room.findById(roomId).lean()
+  if (!room) throw new ApiError(404, "Room not found")
+
+  const isRoomManager =
+    room.managerId?.toString() === user.id ||
+    (user.role.key === ROLE_KEYS.ROOM_MANAGER && room.createdBy?.toString() === user.id)
+
+  if (!isRoomManager) {
+    throw new ApiError(
+      403,
+      "Only the person who paid for this expense can update it within 24 hours of adding it."
+    )
+  }
+}
+
 function toBillPeriod(date: Date | string): string {
   const d = new Date(date)
   const year = d.getFullYear()
@@ -23,18 +75,21 @@ function toBillPeriod(date: Date | string): string {
   return `${year}-${month}`
 }
 
-function buildMemberShares(amount: number, presentMemberIds: string[]) {
-  return computeEqualShares(amount, presentMemberIds).map((entry) => ({
-    userId: entry.userId,
-    share: entry.share,
-  }))
+/** Equal-split shares derived on read from amount + present members (not stored). */
+export function withMemberShares<T extends ExpenseLean>(expense: T) {
+  const presentMemberIds = expense.presentMemberIds.map((id) => String(id))
+  return {
+    ...expense,
+    memberShares: computeEqualShares(expense.amount, presentMemberIds),
+  }
 }
 
 export const expenseService = {
   async listExpenses(roomId: string, period?: string) {
     const query: Record<string, unknown> = { roomId }
     if (period) query.billPeriod = period
-    return Expense.find(query).sort({ date: -1 }).lean()
+    const expenses = await Expense.find(query).sort({ date: -1 }).lean()
+    return expenses.map((expense) => withMemberShares(expense))
   },
 
   async createExpense(
@@ -117,9 +172,7 @@ export const expenseService = {
       throw new ApiError(400, "Paid-by person must be included in present members")
     }
 
-    const memberShares = buildMemberShares(input.amount, input.presentMemberIds)
-
-    return Expense.create({
+    const expense = await Expense.create({
       roomId,
       title: input.title,
       amount: input.amount,
@@ -127,22 +180,23 @@ export const expenseService = {
       date: expenseDate,
       paidByUserId: input.paidByUserId,
       presentMemberIds: input.presentMemberIds,
-      memberShares,
       billPeriod: toBillPeriod(expenseDate),
       createdBy: user.id,
     })
+
+    // Drop any legacy stored shares if present on older documents after migrations
+    return withMemberShares(expense.toObject())
   },
 
   async updateExpense(
     roomId: string,
     expId: string,
-    update: Partial<CreateExpenseInput>
+    update: Partial<CreateExpenseInput>,
+    user: AuthenticatedUser
   ) {
     const expense = await Expense.findOne({ _id: expId, roomId })
     if (!expense) throw new ApiError(404, "Expense not found")
-    if (expense.isLocked) {
-      throw new ApiError(409, "Expense is locked. Reopen the bill to edit.")
-    }
+    await assertCanMutateExpense(roomId, expense, user)
 
     if (update.date) {
       expense.date = new Date(update.date)
@@ -154,21 +208,42 @@ export const expenseService = {
     if (update.paidByUserId !== undefined) expense.paidByUserId = update.paidByUserId as never
     if (update.presentMemberIds !== undefined) {
       expense.presentMemberIds = update.presentMemberIds as never
+
+      const room = await Room.findById(roomId).lean()
+      if (room) {
+        const isAdmin = user.role.key === ROLE_KEYS.ADMIN
+        const isRoomManager =
+          room.managerId?.toString() === user.id ||
+          (user.role.key === ROLE_KEYS.ROOM_MANAGER && room.createdBy?.toString() === user.id)
+        const includeManager = isAdmin || isRoomManager
+
+        if (
+          !includeManager &&
+          room.managerId &&
+          update.presentMemberIds.includes(room.managerId.toString())
+        ) {
+          throw new ApiError(400, "Room manager cannot be included in present members")
+        }
+      }
     }
 
-    const amount = expense.amount
     const presentIds = expense.presentMemberIds.map((id) => id.toString())
-    expense.set("memberShares", buildMemberShares(amount, presentIds))
+    const paidBy = expense.paidByUserId?.toString()
+    if (paidBy && !presentIds.includes(paidBy)) {
+      throw new ApiError(400, "Paid-by person must be included in present members")
+    }
 
-    return expense.save()
+    await expense.save()
+    // Remove legacy stored shares from older documents (field no longer in schema)
+    await Expense.updateOne({ _id: expense._id }, { $unset: { memberShares: 1 } })
+
+    return withMemberShares(expense.toObject())
   },
 
-  async deleteExpense(roomId: string, expId: string) {
+  async deleteExpense(roomId: string, expId: string, user: AuthenticatedUser) {
     const expense = await Expense.findOne({ _id: expId, roomId })
     if (!expense) throw new ApiError(404, "Expense not found")
-    if (expense.isLocked) {
-      throw new ApiError(409, "Expense is locked. Reopen the bill to edit.")
-    }
+    await assertCanMutateExpense(roomId, expense, user)
     await expense.deleteOne()
     return { message: "Expense deleted" }
   },
