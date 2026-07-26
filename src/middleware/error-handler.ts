@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express"
+import mongoose from "mongoose"
 import { ApiError } from "@/utils/api-error"
 import { sendError } from "@/utils/api-response"
 import { env } from "@/config/env"
@@ -39,6 +40,30 @@ export function errorHandler(
     })
 
     res.status(err.statusCode).json(sendError(err.message))
+    return
+  }
+
+  if (err instanceof mongoose.Error.CastError) {
+    logger.warn("Invalid request identifier", {
+      ...requestMeta,
+      statusCode: 400,
+      type: "CastError",
+      path: err.path,
+    })
+    res.status(400).json(sendError("Invalid identifier in request"))
+    return
+  }
+
+  if (err instanceof mongoose.Error.ValidationError) {
+    const message = Object.values(err.errors)
+      .map((entry) => entry.message)
+      .join("; ")
+    logger.warn("Validation failed", {
+      ...requestMeta,
+      statusCode: 400,
+      type: "ValidationError",
+    })
+    res.status(400).json(sendError(message || "Validation failed"))
     return
   }
 

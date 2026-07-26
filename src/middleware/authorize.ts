@@ -16,7 +16,9 @@ export const authenticate = asyncHandler(
     const token = authHeader.slice(7)
 
     try {
-      const payload = jwt.verify(token, env.jwtSecret) as { sub: string }
+      const payload = jwt.verify(token, env.jwtSecret, {
+        algorithms: ["HS256"],
+      }) as { sub: string }
       req.user = await authService.getAuthContext(payload.sub)
       next()
     } catch {
@@ -117,14 +119,14 @@ export const requireRoomAccess = (level: "member" | "manager") =>
  */
 export const requireExpenseUnlocked = asyncHandler(
   async (req: Request, _res: Response, next: NextFunction) => {
-    const { expId } = req.params
-    if (!expId) {
+    const { expId, roomId } = req.params
+    if (!expId || !roomId) {
       next()
       return
     }
 
     const { Expense } = await import("@/modules/expenses/expense.model")
-    const expense = await Expense.findById(expId)
+    const expense = await Expense.findOne({ _id: expId, roomId })
 
     if (!expense) {
       throw new ApiError(404, "Expense not found")

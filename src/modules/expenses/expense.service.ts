@@ -34,23 +34,7 @@ export const expenseService = {
   async listExpenses(roomId: string, period?: string) {
     const query: Record<string, unknown> = { roomId }
     if (period) query.billPeriod = period
-    const expenses = await Expense.find(query).sort({ date: -1 })
-
-    // Backfill shares for older expenses that predate memberShares
-    for (const expense of expenses) {
-      if (!expense.memberShares || expense.memberShares.length === 0) {
-        expense.set(
-          "memberShares",
-          buildMemberShares(
-            expense.amount,
-            expense.presentMemberIds.map((id) => id.toString())
-          )
-        )
-        await expense.save()
-      }
-    }
-
-    return expenses.map((expense) => expense.toObject())
+    return Expense.find(query).sort({ date: -1 }).lean()
   },
 
   async createExpense(
@@ -150,10 +134,11 @@ export const expenseService = {
   },
 
   async updateExpense(
+    roomId: string,
     expId: string,
-    update: Partial<CreateExpenseInput & { isLocked: boolean }>
+    update: Partial<CreateExpenseInput>
   ) {
-    const expense = await Expense.findById(expId)
+    const expense = await Expense.findOne({ _id: expId, roomId })
     if (!expense) throw new ApiError(404, "Expense not found")
     if (expense.isLocked) {
       throw new ApiError(409, "Expense is locked. Reopen the bill to edit.")
@@ -170,7 +155,6 @@ export const expenseService = {
     if (update.presentMemberIds !== undefined) {
       expense.presentMemberIds = update.presentMemberIds as never
     }
-    if (update.isLocked !== undefined) expense.isLocked = update.isLocked
 
     const amount = expense.amount
     const presentIds = expense.presentMemberIds.map((id) => id.toString())
@@ -179,8 +163,8 @@ export const expenseService = {
     return expense.save()
   },
 
-  async deleteExpense(expId: string) {
-    const expense = await Expense.findById(expId)
+  async deleteExpense(roomId: string, expId: string) {
+    const expense = await Expense.findOne({ _id: expId, roomId })
     if (!expense) throw new ApiError(404, "Expense not found")
     if (expense.isLocked) {
       throw new ApiError(409, "Expense is locked. Reopen the bill to edit.")

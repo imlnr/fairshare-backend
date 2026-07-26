@@ -81,7 +81,7 @@ const billSchema = new Schema(
   }
 )
 
-billSchema.index({ roomId: 1, period: 1 })
+billSchema.index({ roomId: 1, period: 1 }, { unique: true })
 
 export type MemberSummaryDocument = InferSchemaType<typeof memberSummarySchema>
 export type BillDocument = InferSchemaType<typeof billSchema>

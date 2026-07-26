@@ -24,14 +24,18 @@ export const expenseController = {
 
   updateExpense: asyncHandler(async (req: Request, res: Response) => {
     const expense = await expenseService.updateExpense(
+      req.params["roomId"] as string,
       req.params["expId"] as string,
-      req.body as object
+      req.body as Parameters<typeof expenseService.updateExpense>[2]
     )
     res.json(ApiResponse.success(expense, "Expense updated"))
   }),
 
   deleteExpense: asyncHandler(async (req: Request, res: Response) => {
-    const result = await expenseService.deleteExpense(req.params["expId"] as string)
+    const result = await expenseService.deleteExpense(
+      req.params["roomId"] as string,
+      req.params["expId"] as string
+    )
     res.json(ApiResponse.success(result))
   }),
 }

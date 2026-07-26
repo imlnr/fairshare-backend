@@ -1,10 +1,11 @@
 import { Router } from "express"
 import { authenticate, authorize } from "@/middleware/authorize"
+import { joinRateLimiter } from "@/middleware/rate-limit"
 import { joinRequestController } from "@/modules/join-requests/join-request.controller"
 
 const joinRequestRoutes = Router()
 
-joinRequestRoutes.post("/room-manager", joinRequestController.submit)
+joinRequestRoutes.post("/room-manager", joinRateLimiter, joinRequestController.submit)
 
 joinRequestRoutes.get(
   "/",

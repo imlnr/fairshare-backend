@@ -2,6 +2,7 @@ import type { Request, Response } from "express"
 import { asyncHandler } from "@/middleware/async-handler"
 import { ApiResponse } from "@/utils/api-response"
 import { ApiError } from "@/utils/api-error"
+import { ROLE_KEYS } from "@/constants/roles"
 import { roomService } from "@/modules/rooms/room.service"
 
 export const roomController = {
@@ -26,7 +27,20 @@ export const roomController = {
   }),
 
   updateRoom: asyncHandler(async (req: Request, res: Response) => {
-    const room = await roomService.updateRoom(req.params["roomId"] as string, req.body as object)
+    const body = req.body as Record<string, unknown>
+    const update: {
+      name?: string
+      description?: string
+      image?: string
+      isActive?: boolean
+    } = {}
+
+    if (typeof body.name === "string") update.name = body.name
+    if (typeof body.description === "string") update.description = body.description
+    if (typeof body.image === "string") update.image = body.image
+    if (typeof body.isActive === "boolean") update.isActive = body.isActive
+
+    const room = await roomService.updateRoom(req.params["roomId"] as string, update)
     res.json(ApiResponse.success(room, "Room updated"))
   }),
 
@@ -36,7 +50,13 @@ export const roomController = {
   }),
 
   assignManager: asyncHandler(async (req: Request, res: Response) => {
+    if (req.user?.role.key !== ROLE_KEYS.ADMIN) {
+      throw new ApiError(403, "Only admins can assign room managers")
+    }
     const { managerId } = req.body as { managerId: string }
+    if (!managerId) {
+      throw new ApiError(400, "managerId is required")
+    }
     const room = await roomService.assignManager(req.params["roomId"] as string, managerId)
     res.json(ApiResponse.success(room, "Manager assigned"))
   }),

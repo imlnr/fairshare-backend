@@ -5,11 +5,12 @@ import { env } from "@/config/env"
 const SENSITIVE_KEYS = new Set([
   "password",
   "token",
-  "accessToken",
-  "refreshToken",
+  "accesstoken",
+  "refreshtoken",
   "authorization",
-  "smtpPass",
-  "jwtSecret",
+  "smtppass",
+  "jwtsecret",
+  "idtoken",
 ])
 
 function redactValue(value: unknown): unknown {

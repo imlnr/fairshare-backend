@@ -5,7 +5,7 @@ import { billService } from "@/modules/bills/bill.service"
 
 export const billController = {
   listBills: asyncHandler(async (req: Request, res: Response) => {
-    const bills = await billService.listBills(req.params["roomId"] as string)
+    const bills = await billService.listBills(req.params["roomId"] as string, req.user!)
     res.json(ApiResponse.success(bills))
   }),
 
@@ -20,12 +20,19 @@ export const billController = {
   }),
 
   getBill: asyncHandler(async (req: Request, res: Response) => {
-    const bill = await billService.getBill(req.params["billId"] as string, req.user!)
+    const bill = await billService.getBill(
+      req.params["roomId"] as string,
+      req.params["billId"] as string,
+      req.user!
+    )
     res.json(ApiResponse.success(bill))
   }),
 
   reopenBill: asyncHandler(async (req: Request, res: Response) => {
-    const bill = await billService.reopenBill(req.params["billId"] as string)
+    const bill = await billService.reopenBill(
+      req.params["roomId"] as string,
+      req.params["billId"] as string
+    )
     res.json(ApiResponse.success(bill, "Bill reopened"))
   }),
 }

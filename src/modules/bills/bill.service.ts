@@ -56,53 +56,51 @@ function transfersFromSummaries(
   )
 }
 
+async function canViewFullBill(roomId: string, user: AuthenticatedUser) {
+  if (user.role.key === ROLE_KEYS.ADMIN) return true
+
+  const room = await Room.findById(roomId).lean()
+  if (!room) return false
+
+  return (
+    room.managerId?.toString() === user.id ||
+    (user.role.key === ROLE_KEYS.ROOM_MANAGER && room.createdBy?.toString() === user.id)
+  )
+}
+
+function filterBillForMember<T extends {
+  memberSummaries: { userId: { toString(): string } }[]
+  settlementTransfers: {
+    fromUserId: { toString(): string }
+    toUserId: { toString(): string }
+  }[]
+}>(bill: T, userId: string) {
+  const ownSummary = bill.memberSummaries.find((s) => s.userId.toString() === userId)
+  const ownTransfers = bill.settlementTransfers.filter(
+    (t) => t.fromUserId.toString() === userId || t.toUserId.toString() === userId
+  )
+  return {
+    ...bill,
+    memberSummaries: ownSummary ? [ownSummary] : [],
+    settlementTransfers: ownTransfers,
+  }
+}
+
 export const billService = {
-  async listBills(roomId: string) {
-    const bills = await Bill.find({ roomId }).sort({ period: -1 })
-
-    for (const bill of bills) {
-      if (!bill.settlementTransfers || bill.settlementTransfers.length === 0) {
-        const transfers = transfersFromSummaries(bill.memberSummaries)
-        if (transfers.length > 0 || bill.memberSummaries.length > 0) {
-          bill.set("settlementTransfers", transfers)
-          await bill.save()
-        }
-      }
-    }
-
-    return bills.map((bill) => bill.toObject())
+  async listBills(roomId: string, user: AuthenticatedUser) {
+    const bills = await Bill.find({ roomId }).sort({ period: -1 }).lean()
+    const fullAccess = await canViewFullBill(roomId, user)
+    if (fullAccess) return bills
+    return bills.map((bill) => filterBillForMember(bill, user.id))
   },
 
-  async getBill(billId: string, user: AuthenticatedUser) {
-    const bill = await Bill.findById(billId)
+  async getBill(roomId: string, billId: string, user: AuthenticatedUser) {
+    const bill = await Bill.findOne({ _id: billId, roomId }).lean()
     if (!bill) throw new ApiError(404, "Bill not found")
 
-    if (!bill.settlementTransfers || bill.settlementTransfers.length === 0) {
-      bill.set("settlementTransfers", transfersFromSummaries(bill.memberSummaries))
-      await bill.save()
-    }
-
-    const lean = bill.toObject()
-
-    if (
-      user.role.key !== ROLE_KEYS.ADMIN &&
-      user.role.key !== ROLE_KEYS.ROOM_MANAGER
-    ) {
-      const ownSummary = lean.memberSummaries.find(
-        (s) => s.userId.toString() === user.id
-      )
-      const ownTransfers = lean.settlementTransfers.filter(
-        (t) =>
-          t.fromUserId.toString() === user.id || t.toUserId.toString() === user.id
-      )
-      return {
-        ...lean,
-        memberSummaries: ownSummary ? [ownSummary] : [],
-        settlementTransfers: ownTransfers,
-      }
-    }
-
-    return lean
+    const fullAccess = await canViewFullBill(roomId, user)
+    if (fullAccess) return bill
+    return filterBillForMember(bill, user.id)
   },
 
   async generateBill(roomId: string, period: string, generatedById: string) {
@@ -123,7 +121,7 @@ export const billService = {
       throw new ApiError(400, `No expenses found for period ${period}`)
     }
 
-    // Ensure every expense has persisted shares before bill math
+    // Persist missing shares once at generate time (not on every list)
     for (const expense of expenses) {
       if (!expense.memberShares || expense.memberShares.length === 0) {
         expense.set(
@@ -211,8 +209,8 @@ export const billService = {
     return Bill.findOne({ roomId, period }).lean()
   },
 
-  async reopenBill(billId: string) {
-    const bill = await Bill.findById(billId)
+  async reopenBill(roomId: string, billId: string) {
+    const bill = await Bill.findOne({ _id: billId, roomId })
     if (!bill) throw new ApiError(404, "Bill not found")
     if (bill.status !== "locked") {
       throw new ApiError(400, "Only locked bills can be reopened")

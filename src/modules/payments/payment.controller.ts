@@ -5,7 +5,10 @@ import { paymentService } from "@/modules/payments/payment.service"
 
 export const paymentController = {
   listPayments: asyncHandler(async (req: Request, res: Response) => {
-    const payments = await paymentService.listPayments(req.params["billId"] as string)
+    const payments = await paymentService.listPayments(
+      req.params["roomId"] as string,
+      req.params["billId"] as string
+    )
     res.json(ApiResponse.success(payments))
   }),
 

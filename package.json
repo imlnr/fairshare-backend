@@ -13,11 +13,11 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.6.0",
     "google-auth-library": "^10.9.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.4",
     "nodemailer": "^9.0.3",
-    "nodemon": "^3.1.14",
     "winston": "^3.19.0"
   },
   "devDependencies": {
@@ -27,6 +27,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.1.1",
     "@types/nodemailer": "^8.0.1",
+    "nodemon": "^3.1.14",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.23.0",
     "typescript": "^5.8.3"

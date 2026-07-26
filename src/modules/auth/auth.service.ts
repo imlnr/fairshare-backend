@@ -81,7 +81,8 @@ async function buildAuthResult(user: PopulatedUser): Promise<AuthResult> {
 
 export const authService = {
   async login(input: LoginInput): Promise<AuthResult> {
-    const user = await User.findOne({ email: input.email }).select("+password").populate("roleId")
+    const email = input.email.trim().toLowerCase()
+    const user = await User.findOne({ email }).select("+password").populate("roleId")
     if (!user || !user.password) {
       throw new ApiError(401, "Invalid email or password")
     }

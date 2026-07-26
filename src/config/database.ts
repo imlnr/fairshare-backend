@@ -35,8 +35,3 @@ export async function connectDatabase(): Promise<void> {
 
   cache.conn = await cache.promise
 }
-
-export async function disconnectDatabase(): Promise<void> {
-  await mongoose.disconnect()
-  logger.info("MongoDB disconnected")
-}

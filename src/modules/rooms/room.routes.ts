@@ -22,7 +22,6 @@ roomRoutes.delete("/:roomId", authenticate, requireRoomAccess("manager"), roomCo
 roomRoutes.post(
   "/:roomId/assign-manager",
   authenticate,
-  authorize("rooms:manage_members"),
   roomController.assignManager
 )
 

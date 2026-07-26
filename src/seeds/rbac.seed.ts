@@ -51,21 +51,24 @@ export async function seedRbac(): Promise<void> {
     const roleId = roleMap.get(roleKey as RoleKey)
     if (!roleId) continue
 
+    const desiredPermissionIds = permissionKeys
+      .map((permissionKey) => permissionMap.get(permissionKey))
+      .filter((id): id is Types.ObjectId => Boolean(id))
+
+    const existing = await RolePermission.find({ roleId }).lean()
+    const existingIds = new Set(existing.map((row) => row.permissionId.toString()))
+    const desiredIds = new Set(desiredPermissionIds.map((id) => id.toString()))
+
+    const sameSize = existingIds.size === desiredIds.size
+    const sameMembers = sameSize && [...desiredIds].every((id) => existingIds.has(id))
+    if (sameMembers) continue
+
     await RolePermission.deleteMany({ roleId })
 
-    const rolePermissions = permissionKeys
-      .map((permissionKey) => {
-        const permissionId = permissionMap.get(permissionKey)
-        if (!permissionId) return null
-        return { roleId, permissionId }
-      })
-      .filter(
-        (entry): entry is { roleId: Types.ObjectId; permissionId: Types.ObjectId } =>
-          entry !== null
+    if (desiredPermissionIds.length > 0) {
+      await RolePermission.insertMany(
+        desiredPermissionIds.map((permissionId) => ({ roleId, permissionId }))
       )
-
-    if (rolePermissions.length > 0) {
-      await RolePermission.insertMany(rolePermissions)
     }
   }
 

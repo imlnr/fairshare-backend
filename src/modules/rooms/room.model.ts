@@ -24,6 +24,7 @@ const roomSchema = new Schema(
       type: Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
     isActive: {
       type: Boolean,
