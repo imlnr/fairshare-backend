@@ -44,5 +44,8 @@ const paymentSchema = new Schema(
   }
 )
 
+paymentSchema.index({ roomId: 1, paidAt: -1 })
+paymentSchema.index({ payerId: 1, paidAt: -1 })
+
 export type PaymentDocument = InferSchemaType<typeof paymentSchema>
 export const Payment = model("Payment", paymentSchema)

@@ -62,6 +62,8 @@ const expenseSchema = new Schema(
 )
 
 expenseSchema.index({ roomId: 1, billPeriod: 1 })
+expenseSchema.index({ roomId: 1, date: -1 })
+expenseSchema.index({ roomId: 1, paidByUserId: 1 })
 
 export type ExpenseDocument = InferSchemaType<typeof expenseSchema>
 export const Expense = model("Expense", expenseSchema)
