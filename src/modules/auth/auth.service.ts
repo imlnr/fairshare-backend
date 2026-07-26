@@ -1,6 +1,5 @@
 import { Types } from "mongoose"
 import bcrypt from "bcrypt"
-import { OAuth2Client } from "google-auth-library"
 import jwt from "jsonwebtoken"
 import { ROLE_KEYS } from "@/constants/roles"
 import { env } from "@/config/env"
@@ -16,7 +15,30 @@ import type {
 } from "@/modules/auth/auth.types"
 import type { AuthenticatedUser } from "@/types/express"
 
-const googleClient = new OAuth2Client(env.googleClientId)
+type GoogleProfile = {
+  sub: string
+  email: string
+  email_verified?: boolean
+  name?: string
+  picture?: string
+}
+
+async function fetchGoogleProfile(accessToken: string): Promise<GoogleProfile> {
+  const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+
+  if (!response.ok) {
+    throw new ApiError(401, "Invalid Google token")
+  }
+
+  const payload = (await response.json()) as Partial<GoogleProfile>
+  if (!payload.sub || !payload.email) {
+    throw new ApiError(401, "Invalid Google token")
+  }
+
+  return payload as GoogleProfile
+}
 
 type PopulatedUser = {
   _id: { toString(): string }
@@ -104,15 +126,11 @@ export const authService = {
   },
 
   async loginWithGoogle(input: GoogleAuthInput): Promise<AuthResult> {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: input.idToken,
-      audience: env.googleClientId,
-    })
-
-    const payload = ticket.getPayload()
-    if (!payload?.sub || !payload.email) {
-      throw new ApiError(401, "Invalid Google token")
+    if (!input.accessToken?.trim()) {
+      throw new ApiError(400, "Google access token is required")
     }
+
+    const payload = await fetchGoogleProfile(input.accessToken)
 
     const user = await User.findOne({
       $or: [{ googleId: payload.sub }, { email: payload.email.toLowerCase() }],

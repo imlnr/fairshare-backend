@@ -6,7 +6,7 @@ export type LoginInput = {
 }
 
 export type GoogleAuthInput = {
-  idToken: string
+  accessToken: string
 }
 
 export type AuthTokens = {
