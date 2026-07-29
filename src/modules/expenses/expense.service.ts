@@ -84,12 +84,110 @@ export function withMemberShares<T extends ExpenseLean>(expense: T) {
   }
 }
 
+export type ListExpensesQuery = {
+  period?: string
+  search?: string
+  sortBy?: "date" | "price"
+  sortOrder?: "asc" | "desc"
+  paidBy?: string
+  /** Match expenses that include all of these members in the split. */
+  splitWith?: string[]
+  minAmount?: number
+  maxAmount?: number
+  /** When set, results are paginated. Omit to return all matches. */
+  page?: number
+  pageSize?: number
+}
+
+export type PaginatedExpenses = {
+  items: ReturnType<typeof withMemberShares>[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function buildExpenseFilter(roomId: string, options: ListExpensesQuery) {
+  const filter: Record<string, unknown> = { roomId }
+
+  if (options.period) filter.billPeriod = options.period
+
+  if (options.paidBy) filter.paidByUserId = options.paidBy
+
+  if (options.splitWith && options.splitWith.length > 0) {
+    filter.presentMemberIds = { $all: options.splitWith }
+  }
+
+  const amount: Record<string, number> = {}
+  if (options.minAmount !== undefined && Number.isFinite(options.minAmount)) {
+    amount.$gte = options.minAmount
+  }
+  if (options.maxAmount !== undefined && Number.isFinite(options.maxAmount)) {
+    amount.$lte = options.maxAmount
+  }
+  if (Object.keys(amount).length > 0) filter.amount = amount
+
+  const search = options.search?.trim()
+  if (search) {
+    const or: Record<string, unknown>[] = [
+      { title: { $regex: escapeRegex(search), $options: "i" } },
+      {
+        $expr: {
+          $regexMatch: {
+            input: { $toString: "$amount" },
+            regex: escapeRegex(search),
+            options: "i",
+          },
+        },
+      },
+    ]
+    const asNumber = Number(search)
+    if (Number.isFinite(asNumber)) {
+      or.push({ amount: asNumber })
+    }
+    filter.$or = or
+  }
+
+  return filter
+}
+
 export const expenseService = {
-  async listExpenses(roomId: string, period?: string) {
-    const query: Record<string, unknown> = { roomId }
-    if (period) query.billPeriod = period
-    const expenses = await Expense.find(query).sort({ date: -1 }).lean()
-    return expenses.map((expense) => withMemberShares(expense))
+  async listExpenses(
+    roomId: string,
+    options: ListExpensesQuery = {}
+  ): Promise<PaginatedExpenses> {
+    const filter = buildExpenseFilter(roomId, options)
+    const sortField = options.sortBy === "price" ? "amount" : "date"
+    const sortDir = options.sortOrder === "asc" ? 1 : -1
+    const sort: Record<string, 1 | -1> = { [sortField]: sortDir, _id: -1 }
+
+    const total = await Expense.countDocuments(filter)
+    const paginate = options.page !== undefined
+    const pageSize = paginate
+      ? Math.min(Math.max(options.pageSize ?? 10, 1), 100)
+      : Math.max(total, 1)
+    const totalPages = paginate ? Math.max(1, Math.ceil(total / pageSize)) : 1
+    const page = paginate
+      ? Math.min(Math.max(options.page ?? 1, 1), totalPages)
+      : 1
+
+    let query = Expense.find(filter).sort(sort)
+    if (paginate) {
+      query = query.skip((page - 1) * pageSize).limit(pageSize)
+    }
+
+    const expenses = await query.lean()
+    return {
+      items: expenses.map((expense) => withMemberShares(expense)),
+      page,
+      pageSize: paginate ? pageSize : total,
+      total,
+      totalPages,
+    }
   },
 
   async createExpense(
