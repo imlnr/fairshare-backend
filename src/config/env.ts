@@ -18,6 +18,7 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
   googleClientId: requireEnv("GOOGLE_CLIENT_ID"),
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   appName: process.env.APP_NAME ?? "FairShare",
   appUrl: process.env.APP_URL ?? "http://localhost:5173",
   smtpHost: process.env.SMTP_HOST ?? "",

@@ -1,11 +1,10 @@
 import { Types } from "mongoose"
 import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
-import { ROLE_KEYS } from "@/constants/roles"
 import { env } from "@/config/env"
 import { ApiError } from "@/utils/api-error"
+import { fetchGoogleProfile } from "@/modules/auth/google-oauth"
 import { getPermissionsForRole } from "@/modules/rbac/rbac.service"
-import { Role } from "@/modules/roles/role.model"
 import { User, type AuthProvider } from "@/modules/users/user.model"
 import type {
   AuthResult,
@@ -14,31 +13,6 @@ import type {
   SafeUser,
 } from "@/modules/auth/auth.types"
 import type { AuthenticatedUser } from "@/types/express"
-
-type GoogleProfile = {
-  sub: string
-  email: string
-  email_verified?: boolean
-  name?: string
-  picture?: string
-}
-
-async function fetchGoogleProfile(accessToken: string): Promise<GoogleProfile> {
-  const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-
-  if (!response.ok) {
-    throw new ApiError(401, "Invalid Google token")
-  }
-
-  const payload = (await response.json()) as Partial<GoogleProfile>
-  if (!payload.sub || !payload.email) {
-    throw new ApiError(401, "Invalid Google token")
-  }
-
-  return payload as GoogleProfile
-}
 
 type PopulatedUser = {
   _id: { toString(): string }
@@ -130,7 +104,13 @@ export const authService = {
       throw new ApiError(400, "Google access token is required")
     }
 
-    const payload = await fetchGoogleProfile(input.accessToken)
+    let payload
+    try {
+      payload = await fetchGoogleProfile(input.accessToken.trim())
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid Google access token"
+      throw new ApiError(401, message)
+    }
 
     const user = await User.findOne({
       $or: [{ googleId: payload.sub }, { email: payload.email.toLowerCase() }],
