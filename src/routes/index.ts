@@ -5,6 +5,7 @@ import { rbacRoutes } from "@/modules/rbac/rbac.routes"
 import { roomRoutes } from "@/modules/rooms/room.routes"
 import { joinRequestRoutes } from "@/modules/join-requests/join-request.routes"
 import { dashboardRoutes } from "@/modules/dashboard/dashboard.routes"
+import { sidebarRoutes } from "@/modules/sidebar/sidebar.routes"
 
 const apiRoutes = Router()
 
@@ -13,6 +14,7 @@ apiRoutes.use("/auth", authRoutes)
 apiRoutes.use("/rbac", rbacRoutes)
 apiRoutes.use("/rooms", roomRoutes)
 apiRoutes.use("/dashboard", dashboardRoutes)
+apiRoutes.use("/sidebar", sidebarRoutes)
 apiRoutes.use("/join", joinRequestRoutes)
 apiRoutes.use("/join-requests", joinRequestRoutes)
 

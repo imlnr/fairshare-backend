@@ -12,5 +12,11 @@ rbacRoutes.get(
   authorize("roles:read"),
   rbacController.listRolePermissions
 )
+rbacRoutes.get("/matrix", authorize("roles:read"), rbacController.getMatrix)
+rbacRoutes.put(
+  "/roles/:roleId/permissions",
+  authorize("roles:manage"),
+  rbacController.updateRolePermissions
+)
 
 export { rbacRoutes }

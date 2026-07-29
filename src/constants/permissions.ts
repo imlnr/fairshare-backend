@@ -29,6 +29,8 @@ export const PERMISSION_SEEDS: PermissionSeed[] = [
   { key: "payments:create", resource: "payments", action: "create", description: "Record payments" },
   { key: "join_requests:read", resource: "join_requests", action: "read", description: "View room manager join requests" },
   { key: "join_requests:review", resource: "join_requests", action: "review", description: "Approve or reject join requests" },
+  { key: "sidebar:read", resource: "sidebar", action: "read", description: "View own sidebar menu" },
+  { key: "sidebar:manage", resource: "sidebar", action: "manage", description: "Manage sidebar menu items and role access" },
 ]
 
 export const ROLE_PERMISSION_MAP: Record<string, string[]> = {
@@ -49,6 +51,7 @@ export const ROLE_PERMISSION_MAP: Record<string, string[]> = {
     "bills:reopen",
     "payments:read",
     "payments:create",
+    "sidebar:read",
   ],
   member: [
     "rooms:read",
@@ -57,6 +60,7 @@ export const ROLE_PERMISSION_MAP: Record<string, string[]> = {
     "reports:read",
     "bills:read",
     "payments:read",
+    "sidebar:read",
   ],
-  viewer: ["rooms:read", "expenses:read", "reports:read"],
+  viewer: ["rooms:read", "expenses:read", "reports:read", "sidebar:read"],
 }
