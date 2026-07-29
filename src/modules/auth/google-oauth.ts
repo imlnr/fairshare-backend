@@ -45,3 +45,40 @@ export async function fetchGoogleProfile(accessToken: string): Promise<GooglePro
     picture: data.picture,
   }
 }
+
+type GoogleTokenResponse = {
+  access_token?: string
+  id_token?: string
+  error?: string
+  error_description?: string
+}
+
+/** Exchange an authorization code (redirect flow) for Google tokens. */
+export async function exchangeGoogleAuthCode(
+  code: string,
+  redirectUri: string,
+  clientId: string,
+  clientSecret: string
+): Promise<{ accessToken: string }> {
+  const body = new URLSearchParams({
+    code,
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: redirectUri,
+    grant_type: "authorization_code",
+  })
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  })
+
+  const data = (await response.json()) as GoogleTokenResponse
+
+  if (!response.ok || !data.access_token) {
+    throw new Error(data.error_description || data.error || "Failed to exchange Google auth code")
+  }
+
+  return { accessToken: data.access_token }
+}

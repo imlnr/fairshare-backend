@@ -6,7 +6,11 @@ export type LoginInput = {
 }
 
 export type GoogleAuthInput = {
-  accessToken: string
+  /** Legacy implicit / token popup flow */
+  accessToken?: string
+  /** Auth-code redirect flow (preferred for production) */
+  code?: string
+  redirectUri?: string
 }
 
 export type AuthTokens = {

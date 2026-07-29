@@ -3,7 +3,7 @@ import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
 import { env } from "@/config/env"
 import { ApiError } from "@/utils/api-error"
-import { fetchGoogleProfile } from "@/modules/auth/google-oauth"
+import { fetchGoogleProfile, exchangeGoogleAuthCode } from "@/modules/auth/google-oauth"
 import { getPermissionsForRole } from "@/modules/rbac/rbac.service"
 import { User, type AuthProvider } from "@/modules/users/user.model"
 import type {
@@ -100,15 +100,31 @@ export const authService = {
   },
 
   async loginWithGoogle(input: GoogleAuthInput): Promise<AuthResult> {
-    if (!input.accessToken?.trim()) {
-      throw new ApiError(400, "Google access token is required")
-    }
-
     let payload
+
     try {
-      payload = await fetchGoogleProfile(input.accessToken.trim())
+      if (input.code?.trim()) {
+        if (!env.googleClientSecret) {
+          throw new ApiError(500, "Google client secret is not configured on the server")
+        }
+        if (!input.redirectUri?.trim()) {
+          throw new ApiError(400, "redirectUri is required for Google auth code login")
+        }
+        const { accessToken } = await exchangeGoogleAuthCode(
+          input.code.trim(),
+          input.redirectUri.trim(),
+          env.googleClientId,
+          env.googleClientSecret
+        )
+        payload = await fetchGoogleProfile(accessToken)
+      } else if (input.accessToken?.trim()) {
+        payload = await fetchGoogleProfile(input.accessToken.trim())
+      } else {
+        throw new ApiError(400, "Google credential is required")
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid Google access token"
+      if (error instanceof ApiError) throw error
+      const message = error instanceof Error ? error.message : "Invalid Google credential"
       throw new ApiError(401, message)
     }
 
